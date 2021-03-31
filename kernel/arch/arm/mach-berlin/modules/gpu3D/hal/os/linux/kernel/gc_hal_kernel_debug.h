@@ -94,7 +94,7 @@ typedef va_list gctARGUMENTS;
     vsnprintf(Destination, Size, Message, *((va_list*)Arguments))
 
 #define gcmkSTRCAT(Destination, Size, String) \
-    strncat(Destination, String, Size)
+    strlcat(Destination, String, Size)
 
 #define gcmkMEMCPY(Destination, Source, Size) \
     memcpy(Destination, Source, Size)
