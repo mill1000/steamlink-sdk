@@ -49,7 +49,7 @@ extern int steamlink_low_power_exit_if_appropriate(char *caller);
 struct usb_port {
 	struct usb_device *child;
 	struct device dev;
-	struct dev_state *port_owner;
+	struct usb_dev_state *port_owner;
 	enum usb_port_connect_type connect_type;
 };
 
@@ -1819,7 +1819,7 @@ hub_ioctl(struct usb_interface *intf, unsigned int code, void *user_data)
  * to one of these "claimed" ports, the program will "own" the device.
  */
 static int find_port_owner(struct usb_device *hdev, unsigned port1,
-		struct dev_state ***ppowner)
+		struct usb_dev_state ***ppowner)
 {
 	if (hdev->state == USB_STATE_NOTATTACHED)
 		return -ENODEV;
@@ -1835,10 +1835,10 @@ static int find_port_owner(struct usb_device *hdev, unsigned port1,
 
 /* In the following three functions, the caller must hold hdev's lock */
 int usb_hub_claim_port(struct usb_device *hdev, unsigned port1,
-		       struct dev_state *owner)
+		       struct usb_dev_state *owner)
 {
 	int rc;
-	struct dev_state **powner;
+	struct usb_dev_state **powner;
 
 	rc = find_port_owner(hdev, port1, &powner);
 	if (rc)
@@ -1848,12 +1848,13 @@ int usb_hub_claim_port(struct usb_device *hdev, unsigned port1,
 	*powner = owner;
 	return rc;
 }
+EXPORT_SYMBOL_GPL(usb_hub_claim_port);
 
 int usb_hub_release_port(struct usb_device *hdev, unsigned port1,
-			 struct dev_state *owner)
+			 struct usb_dev_state *owner)
 {
 	int rc;
-	struct dev_state **powner;
+	struct usb_dev_state **powner;
 
 	rc = find_port_owner(hdev, port1, &powner);
 	if (rc)
@@ -1863,8 +1864,9 @@ int usb_hub_release_port(struct usb_device *hdev, unsigned port1,
 	*powner = NULL;
 	return rc;
 }
+EXPORT_SYMBOL_GPL(usb_hub_release_port);
 
-void usb_hub_release_all_ports(struct usb_device *hdev, struct dev_state *owner)
+void usb_hub_release_all_ports(struct usb_device *hdev, struct usb_dev_state *owner)
 {
 	struct usb_hub *hub = hdev_to_hub(hdev);
 	int n;
