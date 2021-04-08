@@ -19,6 +19,7 @@
 
 #include <linux/debugfs.h>
 
+#include "mwifiex_compat.h"
 #include "main.h"
 #include "11n.h"
 
