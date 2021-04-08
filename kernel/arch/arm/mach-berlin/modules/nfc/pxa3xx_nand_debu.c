@@ -3926,6 +3926,9 @@ static int alloc_nand_resource(struct platform_device *pdev)
 		goto fail_alloc;
 	}
 
+	// Init the completion here in case an IRQ fires unexpectedly
+	init_completion(&nand->cmd_complete);
+	
 	ret = request_irq(irq, mv88dexx_nand_dma_intr, IRQF_DISABLED,
 			  pdev->name, nand);
 	if (ret < 0) {
