@@ -1544,7 +1544,7 @@ mwifiex_cmd_tdls_oper(struct mwifiex_private *priv,
 	struct host_cmd_tlv_rates *tlv_rates;
 	struct mwifiex_ie_types_htcap *ht_capab;
 	struct mwifiex_ie_types_qos_info *wmm_qos_info;
-	struct mwifiex_ie_types_extcap *extcap;
+	//struct mwifiex_ie_types_extcap *extcap;
 	struct mwifiex_ie_types_vhtcap *vht_capab;
 	struct mwifiex_ie_types_aid *aid;
 	struct mwifiex_ie_types_tdls_idle_timeout *timeout;

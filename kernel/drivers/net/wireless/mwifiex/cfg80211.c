@@ -2376,8 +2376,8 @@ static int mwifiex_cfg80211_suspend(struct wiphy *wiphy,
 	int i, filt_num = 0, ret;
 	bool first_pat = true;
 	u8 byte_seq[MWIFIEX_MEF_MAX_BYTESEQ + 1];
-	const u8 ipv4_mc_mac[] = {0x33, 0x33};
-	const u8 ipv6_mc_mac[] = {0x01, 0x00, 0x5e};
+	// const u8 ipv4_mc_mac[] = {0x33, 0x33};
+	// const u8 ipv6_mc_mac[] = {0x01, 0x00, 0x5e};
 	struct mwifiex_private *priv =
 			mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_STA);
 
@@ -2494,6 +2494,7 @@ static void mwifiex_cfg80211_set_wakeup(struct wiphy *wiphy,
 }
 #endif
 
+#ifdef MWIFIEX_UPSTREAM
 static int mwifiex_get_coalesce_pkt_type(u8 *byte_seq)
 {
 	const u8 ipv4_mc_mac[] = {0x33, 0x33};
@@ -2606,6 +2607,7 @@ static int mwifiex_cfg80211_set_coalesce(struct wiphy *wiphy,
 	return mwifiex_send_cmd(priv, HostCmd_CMD_COALESCE_CFG,
 				HostCmd_ACT_GEN_SET, 0, &coalesce_cfg, true);
 }
+#endif
 
 /* cfg80211 ops handler for tdls_mgmt.
  * Function prepares TDLS action frame packets and forwards them to FW
