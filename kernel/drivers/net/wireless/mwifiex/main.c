@@ -29,6 +29,11 @@ const char driver_version[] = "mwifiex " VERSION " (%s) ";
 static char *cal_data_cfg;
 module_param(cal_data_cfg, charp, 0);
 
+static unsigned short driver_mode;
+module_param(driver_mode, ushort, 0);
+MODULE_PARM_DESC(driver_mode,
+		 "station=0x1(default), ap-sta=0x3, station-p2p=0x5, ap-sta-p2p=0x7");
+
 /*
  * This function registers the device and performs all the necessary
  * initializations.
@@ -123,6 +128,7 @@ static int mwifiex_unregister(struct mwifiex_adapter *adapter)
 		}
 	}
 
+	vfree(adapter->chan_stats);
 	kfree(adapter);
 	return 0;
 }
@@ -144,8 +150,11 @@ static int mwifiex_process_rx(struct mwifiex_adapter *adapter)
 	/* Check for Rx data */
 	while ((skb = skb_dequeue(&adapter->rx_data_q))) {
 		atomic_dec(&adapter->rx_pending);
-		if (adapter->delay_main_work &&
+		if ((adapter->delay_main_work ||
+		     adapter->iface_type == MWIFIEX_USB) &&
 		    (atomic_read(&adapter->rx_pending) < LOW_RX_PENDING)) {
+			if (adapter->if_ops.submit_rem_rx_urbs)
+				adapter->if_ops.submit_rem_rx_urbs(adapter);
 			adapter->delay_main_work = false;
 			queue_work(adapter->workqueue, &adapter->main_work);
 		}
@@ -178,7 +187,6 @@ int mwifiex_main_process(struct mwifiex_adapter *adapter)
 {
 	int ret = 0;
 	unsigned long flags;
-	struct sk_buff *skb;
 
 	spin_lock_irqsave(&adapter->main_proc_lock, flags);
 
@@ -196,12 +204,15 @@ process_start:
 		    (adapter->hw_status == MWIFIEX_HW_STATUS_NOT_READY))
 			break;
 
-		/* If we process interrupts first, it would increase RX pending
-		 * even further. Avoid this by checking if rx_pending has
-		 * crossed high threshold and schedule rx work queue
-		 * and then process interrupts
+		/* For non-USB interfaces, If we process interrupts first, it
+		 * would increase RX pending even further. Avoid this by
+		 * checking if rx_pending has crossed high threshold and
+		 * schedule rx work queue and then process interrupts.
+		 * For USB interface, there are no interrupts. We already have
+		 * HIGH_RX_PENDING check in usb.c
 		 */
-		if (atomic_read(&adapter->rx_pending) >= HIGH_RX_PENDING) {
+		if (atomic_read(&adapter->rx_pending) >= HIGH_RX_PENDING &&
+		    adapter->iface_type != MWIFIEX_USB) {
 			adapter->delay_main_work = true;
 			if (!adapter->rx_processing)
 				queue_work(adapter->rx_workqueue,
@@ -252,11 +263,6 @@ process_start:
 					break;
 			}
 		}
-
-		/* Check Rx data for USB */
-		if (adapter->iface_type == MWIFIEX_USB)
-			while ((skb = skb_dequeue(&adapter->usb_rx_data_q)))
-				mwifiex_handle_rx_packet(adapter, skb);
 
 		/* Check for event */
 		if (adapter->event_received) {
@@ -448,6 +454,16 @@ static void mwifiex_fw_dpc(const struct firmware *firmware, void *context)
 		goto err_init_fw;
 	}
 
+	if (mwifiex_init_channel_scan_gap(adapter)) {
+		dev_err(adapter->dev, "could not init channel stats table\n");
+		goto err_init_fw;
+	}
+
+	if (driver_mode) {
+		driver_mode &= MWIFIEX_DRIVER_MODE_BITMASK;
+		driver_mode |= MWIFIEX_DRIVER_MODE_STA;
+	}
+
 	rtnl_lock();
 	/* Create station interface by default */
 	wdev = mwifiex_add_virtual_intf(adapter->wiphy, "mlan%d",
@@ -456,6 +472,28 @@ static void mwifiex_fw_dpc(const struct firmware *firmware, void *context)
 		dev_err(adapter->dev, "cannot create default STA interface\n");
 		rtnl_unlock();
 		goto err_add_intf;
+	}
+
+	if (driver_mode & MWIFIEX_DRIVER_MODE_UAP) {
+		wdev = mwifiex_add_virtual_intf(adapter->wiphy, "uap%d",
+						NL80211_IFTYPE_AP, NULL, NULL);
+		if (IS_ERR(wdev)) {
+			dev_err(adapter->dev, "cannot create AP interface\n");
+			rtnl_unlock();
+			goto err_add_intf;
+		}
+	}
+
+	if (driver_mode & MWIFIEX_DRIVER_MODE_P2P) {
+		wdev = mwifiex_add_virtual_intf(adapter->wiphy, "p2p%d",
+						NL80211_IFTYPE_P2P_CLIENT, NULL,
+						NULL);
+		if (IS_ERR(wdev)) {
+			dev_err(adapter->dev,
+				"cannot create p2p client interface\n");
+			rtnl_unlock();
+			goto err_add_intf;
+		}
 	}
 	rtnl_unlock();
 
@@ -571,6 +609,63 @@ int mwifiex_queue_tx_pkt(struct mwifiex_private *priv, struct sk_buff *skb)
 	return 0;
 }
 
+struct sk_buff *
+mwifiex_clone_skb_for_tx_status(struct mwifiex_private *priv,
+				struct sk_buff *skb, u8 flag, u64 *cookie)
+{
+	struct sk_buff *orig_skb = skb;
+	struct mwifiex_txinfo *tx_info, *orig_tx_info;
+
+	skb = skb_clone(skb, GFP_ATOMIC);
+	if (skb) {
+		unsigned long flags;
+		// BACKPORT START
+		int id = -1;
+
+		int ret = 0;
+		do 
+		{
+			if (!idr_pre_get(&priv->ack_status_frames, GFP_ATOMIC))
+				break;
+
+			spin_lock_irqsave(&priv->ack_status_lock, flags);
+			ret = idr_get_new_above(&priv->ack_status_frames, orig_skb, 1, &id);
+
+			if (!ret && id < 0xff) 
+			{
+				idr_remove(&priv->ack_status_frames, id);
+				ret = -ENOSPC;
+			}
+
+			spin_unlock_irqrestore(&priv->ack_status_lock, flags);
+		} while (ret == -EAGAIN);
+		// BACKPORT END
+		
+		if (id >= 0) {
+			tx_info = MWIFIEX_SKB_TXCB(skb);
+			tx_info->ack_frame_id = id;
+			tx_info->flags |= flag;
+			orig_tx_info = MWIFIEX_SKB_TXCB(orig_skb);
+			orig_tx_info->ack_frame_id = id;
+			orig_tx_info->flags |= flag;
+
+			if (flag == MWIFIEX_BUF_FLAG_ACTION_TX_STATUS && cookie)
+				orig_tx_info->cookie = *cookie;
+
+		} else if (skb_shared(skb)) {
+			kfree_skb(orig_skb);
+		} else {
+			kfree_skb(skb);
+			skb = orig_skb;
+		}
+	} else {
+		/* couldn't clone -- lose tx status ... */
+		skb = orig_skb;
+	}
+
+	return skb;
+}
+
 /*
  * CFG802.11 network device handler for data transmission.
  */
@@ -580,6 +675,7 @@ mwifiex_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct mwifiex_private *priv = mwifiex_netdev_get_priv(dev);
 	struct sk_buff *new_skb;
 	struct mwifiex_txinfo *tx_info;
+	bool multicast;
 
 	dev_dbg(priv->adapter->dev, "data: %lu BSS(%d-%d): Data <= kernel\n",
 		jiffies, priv->bss_type, priv->bss_num);
@@ -620,6 +716,15 @@ mwifiex_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	tx_info->bss_type = priv->bss_type;
 	tx_info->pkt_len = skb->len;
 
+	multicast = is_multicast_ether_addr(skb->data);
+
+	if (unlikely(!multicast && skb->sk &&
+		     skb_shinfo(skb)->tx_flags & SKBTX_WIFI_STATUS &&
+		     priv->adapter->fw_api_ver == MWIFIEX_FW_V15))
+		skb = mwifiex_clone_skb_for_tx_status(priv,
+						      skb,
+					MWIFIEX_BUF_FLAG_EAPOL_TX_STATUS, NULL);
+
 	/* Record the current time the packet was queued; used to
 	 * determine the amount of time the packet was queued in
 	 * the driver before it was sent to the firmware.
@@ -628,6 +733,13 @@ mwifiex_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	 * MSDU lifetime expiry.
 	 */
 	__net_timestamp(skb);
+
+	if (ISSUPP_TDLS_ENABLED(priv->adapter->fw_cap_info) &&
+	    priv->bss_type == MWIFIEX_BSS_TYPE_STA &&
+	    !ether_addr_equal_unaligned(priv->cfg_bssid, skb->data)) {
+		if (priv->adapter->auto_tdls && priv->check_tdls_tx)
+			mwifiex_tdls_check_tx(priv, skb);
+	}
 
 	mwifiex_queue_tx_pkt(priv, skb);
 
@@ -715,15 +827,10 @@ static struct net_device_stats *mwifiex_get_stats(struct net_device *dev)
 	return &priv->stats;
 }
 
-typedef u16 (*select_queue_fallback_t)(struct net_device *dev,
-				       struct sk_buff *skb,
-				       struct net_device *sb_dev);
-
-
 static u16
-mwifiex_netdev_select_wmm_queue(struct net_device *dev, struct sk_buff *skb)
+mwifiex_netdev_select_wmm_queue(struct net_device *dev, struct sk_buff *skb) // BACKPORT
 {
-	skb->priority = cfg80211_classify8021d(skb);
+	skb->priority = cfg80211_classify8021d(skb); // BACKPORT
 	return mwifiex_1d_to_wmm_queue[skb->priority];
 }
 
@@ -863,7 +970,7 @@ mwifiex_add_card(void *card, struct semaphore *sem,
 	adapter->cmd_wait_q.status = 0;
 	adapter->scan_wait_q_woken = false;
 
-	if (num_possible_cpus() > 1) {
+	if ((num_possible_cpus() > 1) || adapter->iface_type == MWIFIEX_USB) {
 		adapter->rx_work_enabled = true;
 		pr_notice("rx work enabled, cpus %d\n", num_possible_cpus());
 	}

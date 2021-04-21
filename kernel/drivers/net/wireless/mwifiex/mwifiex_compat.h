@@ -15,6 +15,21 @@ static inline bool ether_addr_equal_unaligned(const u8 *addr1, const u8 *addr2)
 #endif
 }
 
+static inline void ether_addr_copy(u8 *dst, const u8 *src)
+{
+#if defined(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS)
+  *(u32 *)dst = *(const u32 *)src;
+  *(u16 *)(dst + 4) = *(const u16 *)(src + 4);
+#else
+  u16 *a = (u16 *)dst;
+  const u16 *b = (const u16 *)src;
+
+  a[0] = b[0];
+  a[1] = b[1];
+  a[2] = b[2];
+#endif
+}
+
 // iee80211.h
 #define IEEE80211_VHT_CAP_SOUNDING_DIMENSIONS_SHIFT 16
 #define IEEE80211_VHT_CAP_SOUNDING_DIMENSIONS_MASK (7 << IEEE80211_VHT_CAP_SOUNDING_DIMENSIONS_SHIFT)
@@ -26,6 +41,29 @@ static inline bool ether_addr_equal_unaligned(const u8 *addr1, const u8 *addr2)
 
 #define WLAN_EXT_CAPA4_INTERWORKING_ENABLED BIT(7)
 #define WLAN_EXT_CAPA8_TDLS_WIDE_BW_ENABLED BIT(5)
+
+#define WLAN_REASON_TDLS_TEARDOWN_UNSPECIFIED ((enum ieee80211_reasoncode)32)
+
+struct ieee80211_wmm_ac_param {
+  u8 aci_aifsn; /* AIFSN, ACM, ACI */
+  u8 cw; /* ECWmin, ECWmax (CW = 2^ECW - 1) */
+  __le16 txop_limit;
+} __packed;
+
+struct ieee80211_wmm_param_ie {
+  u8 element_id; /* Element ID: 221 (0xdd); */
+  u8 len; /* Length: 24 */
+  /* required fields for WMM version 1 */
+  u8 oui[3]; /* 00:50:f2 */
+  u8 oui_type; /* 2 */
+  u8 oui_subtype; /* 1 */
+  u8 version; /* 1 for WMM version 1.0 */
+  u8 qos_info; /* AP/STA specific QoS info */
+  u8 reserved; /* 0 */
+  /* AC_BE, AC_BK, AC_VI, AC_VO */
+  struct ieee80211_wmm_ac_param ac[4];
+} __packed;
+
 
 // cfg80211.h
 #define IEEE80211_CHAN_NO_IR ((enum ieee80211_channel_flags)(1 << 7))
@@ -128,11 +166,19 @@ enum cfg80211_bss_frame_type
   CFG80211_BSS_FTYPE_PRESP,
 };
 
+struct station_del_parameters {
+  const u8 *mac;
+  u8 subtype;
+  u16 reason_code;
+};
+
 // netdevice.h
 // #define NET_NAME_UNKNOWN	0	/* unknown origin (not exposed to userspace) */
 // #define NET_NAME_ENUM		1	/* enumerated by kernel */
 // #define NET_NAME_PREDICTABLE	2	/* predictably named by the kernel */
 // #define NET_NAME_USER		3	/* provided by user-space */
 // #define NET_NAME_RENAMED	4	/* renamed by user-space */
+
+typedef u16 (*select_queue_fallback_t)(struct net_device *dev, struct sk_buff *skb);
 
 #endif

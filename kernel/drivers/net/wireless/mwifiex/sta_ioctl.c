@@ -148,7 +148,7 @@ int mwifiex_fill_new_bss_desc(struct mwifiex_private *priv,
 	ies = rcu_dereference(bss->ies);
 	beacon_ie = kmemdup(ies->data, ies->len, GFP_ATOMIC);
 	beacon_ie_len = ies->len;
-	//bss_desc->timestamp = ies->tsf;
+	//bss_desc->timestamp = ies->tsf; // BACKPORT
 	rcu_read_unlock();
 
 	if (!beacon_ie) {
@@ -334,7 +334,7 @@ int mwifiex_bss_start(struct mwifiex_private *priv, struct cfg80211_bss *bss,
 		}
 
 		if (bss)
-			cfg80211_put_bss(bss);
+			cfg80211_put_bss(bss); // BACKPORT
 	} else {
 		/* Adhoc mode */
 		/* If the requested SSID matches current SSID, return */
@@ -358,7 +358,7 @@ int mwifiex_bss_start(struct mwifiex_private *priv, struct cfg80211_bss *bss,
 							" list. Joining...\n");
 			ret = mwifiex_adhoc_join(priv, bss_desc);
 			if (bss)
-				cfg80211_put_bss(bss);
+				cfg80211_put_bss(bss); // BACKPORT
 		} else {
 			dev_dbg(adapter->dev, "info: Network not found in "
 				"the list, creating adhoc with ssid = %s\n",
@@ -1027,12 +1027,12 @@ mwifiex_drv_get_driver_version(struct mwifiex_adapter *adapter, char *version,
 			       int max_len)
 {
 	union {
-		u32 l;
+		__le32 l;
 		u8 c[4];
 	} ver;
 	char fw_ver[32];
 
-	ver.l = adapter->fw_release_number;
+	ver.l = cpu_to_le32(adapter->fw_release_number);
 	sprintf(fw_ver, "%u.%u.%u.p%u", ver.c[2], ver.c[1], ver.c[0], ver.c[3]);
 
 	snprintf(version, max_len, driver_version, fw_ver);

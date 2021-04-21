@@ -1544,7 +1544,7 @@ mwifiex_cmd_tdls_oper(struct mwifiex_private *priv,
 	struct host_cmd_tlv_rates *tlv_rates;
 	struct mwifiex_ie_types_htcap *ht_capab;
 	struct mwifiex_ie_types_qos_info *wmm_qos_info;
-	//struct mwifiex_ie_types_extcap *extcap;
+	//struct mwifiex_ie_types_extcap *extcap; // BACKPORT
 	struct mwifiex_ie_types_vhtcap *vht_capab;
 	struct mwifiex_ie_types_aid *aid;
 	struct mwifiex_ie_types_tdls_idle_timeout *timeout;
@@ -1579,8 +1579,9 @@ mwifiex_cmd_tdls_oper(struct mwifiex_private *priv,
 			return -ENODATA;
 		}
 
-		// *(__le16 *)pos = cpu_to_le16(params->capability);
-		// config_len += sizeof(params->capability);
+		// BACKPORT
+		//*(__le16 *)pos = cpu_to_le16(params->capability);
+		//config_len += sizeof(params->capability);
 
 		qos_info = params->uapsd_queues | (params->max_sp << 5);
 		wmm_qos_info = (struct mwifiex_ie_types_qos_info *)(pos +
@@ -1615,6 +1616,7 @@ mwifiex_cmd_tdls_oper(struct mwifiex_private *priv,
 				      params->supported_rates_len;
 		}
 
+		// BACKPORT
 		// if (params->ext_capab && params->ext_capab_len) {
 		// 	extcap = (struct mwifiex_ie_types_extcap *)(pos +
 		// 						    config_len);
